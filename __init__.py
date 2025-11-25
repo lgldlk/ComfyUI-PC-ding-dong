@@ -17,10 +17,10 @@ video_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "video")
 
 
 def new_task_done(
-    self, item_id, history_result, status: Optional["PromptQueue.ExecutionStatus"]
+    self, item_id, history_result, status: Optional["PromptQueue.ExecutionStatus"], **kwargs
 ):
 
-    ret = old_task_done(self, item_id, history_result, status)
+    ret = old_task_done(self, item_id, history_result, status, **kwargs),
     if play_type == "all" and len(self.queue) > 0:
         return ret
 
