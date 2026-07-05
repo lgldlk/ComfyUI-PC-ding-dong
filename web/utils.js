@@ -1,5 +1,6 @@
 import { api } from '../../scripts/api.js';
 import { francMap } from './addfranc.js';
+
 export async function request(url, method, data) {
   let formData = undefined;
   if (method === 'POST') {
@@ -16,49 +17,73 @@ export async function request(url, method, data) {
   return api.fetchApi(url, { method, body: formData });
 }
 
-const AudioContext = window.AudioContext || window.webkitAudioContext;
-const audioContext = new AudioContext();
-let currentSource = null;
+let currentAudio = null;
+const activeAudios = new Set();
 
-export async function fetchAndPlayAudioSingle(filename, volume = 1) {
-  // Stop any currently playing audio
-  if (currentSource) {
-    try {
-      currentSource.stop();
-      currentSource.disconnect();
-    } catch (e) {}
-    currentSource = null;
+function audioUrl(filename) {
+  return api.apiURL(`/pc_get_audio?${new URLSearchParams({ filename }).toString()}`);
+}
+
+function stopAudio(audio) {
+  if (!audio) {
+    return;
+  }
+  try {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+  } catch (e) {}
+
+  activeAudios.delete(audio);
+  if (currentAudio === audio) {
+    currentAudio = null;
+  }
+}
+
+async function createAudio(filename, volume = 1) {
+  if (!filename) {
+    return null;
   }
 
-  const response = await request(`/pc_get_audio`, 'GET', { filename });
-  const audioBuffer = await audioContext.decodeAudioData(await response.arrayBuffer());
-  currentSource = audioContext.createBufferSource();
-  const gainNode = audioContext.createGain();
-  gainNode.gain.value = volume;
-  currentSource.buffer = audioBuffer;
-  currentSource.connect(gainNode);
-  gainNode.connect(audioContext.destination);
-  currentSource.start();
-  currentSource.onended = () => {
-    currentSource = null;
+  const audio = new Audio(audioUrl(filename));
+  audio.volume = Math.max(0, Math.min(1, Number(volume) || 0));
+
+  const cleanup = () => {
+    activeAudios.delete(audio);
+    if (currentAudio === audio) {
+      currentAudio = null;
+    }
   };
+
+  audio.addEventListener('ended', cleanup, { once: true });
+  audio.addEventListener('error', cleanup, { once: true });
+  activeAudios.add(audio);
+
+  return audio;
+}
+
+async function playAudio(audio) {
+  if (!audio) {
+    return;
+  }
+
+  try {
+    await audio.play();
+  } catch (err) {
+    stopAudio(audio);
+    console.error('Failed to play ding-dong audio:', err);
+  }
+}
+
+export async function fetchAndPlayAudioSingle(filename, volume = 1) {
+  stopAudio(currentAudio);
+  currentAudio = await createAudio(filename, volume);
+  await playAudio(currentAudio);
 }
 
 export async function fetchAndPlayAudio(filename, volume = 1) {
-  const response = await request(`/pc_get_audio`, 'GET', { filename });
-  const audioBuffer = await audioContext.decodeAudioData(await response.arrayBuffer());
-
-  let source = audioContext.createBufferSource();
-  const gainNode = audioContext.createGain();
-  gainNode.gain.value = volume;
-
-  source.buffer = audioBuffer;
-  source.connect(gainNode);
-  gainNode.connect(audioContext.destination);
-  source.start();
-  source.onended = () => {
-    source = null;
-  };
+  const audio = await createAudio(filename, volume);
+  await playAudio(audio);
 }
 
 export function get_video_files() {
@@ -81,10 +106,8 @@ export function play_ding_dong_text(text, pitch, rate, volume) {
   utterance.volume = volume;
 
   if (window.pcFranc) {
-    console.log('🍞 ~ play_ding_dong_text ~ francMap[window.pcFranc(text)]:', window.pcFranc(text));
     utterance.lang = francMap[window.pcFranc(text, { minLength: 3 })];
   }
-  console.log('🍞 ~ play_ding_dong_text ~ utterance:', utterance);
   window.speechSynthesis.cancel();
   window.speechSynthesis.speak(utterance);
 }
